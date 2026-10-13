@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>محاكي إجازة السوق</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;user-select:none;-webkit-tap-highlight-color:transparent}
+body{overflow:hidden;font-family:Tahoma;background:#000;touch-action:none}
+canvas{display:block}
+#ui{position:fixed;inset:0;pointer-events:none;color:#fff;z-index:10}
+#info{position:absolute;top:10px;right:10px;background:rgba(0,0,0,.75);padding:8px 14px;border-radius:10px;border:2px solid #fa0;font-size:13px;text-align:right}
+#info h2{margin:0 0 5px;color:#fa0;font-size:15px}
+#qbox{display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(20,20,40,.98);padding:20px;border-radius:15px;border:3px solid #fa0;width:92%;max-width:520px;text-align:center;pointer-events:auto}
+#qtxt{font-size:16px;margin:15px 0;line-height:1.5}
+.abtn{padding:14px 30px;margin:6px;font-size:18px;border:none;border-radius:10px;font-weight:bold;min-width:110px}
+.tbtn{background:#28a745;color:#fff}.fbtn{background:#dc3545;color:#fff}
+#fb{font-size:18px;margin-top:10px;min-height:24px;font-weight:bold}
+#start{position:fixed;inset:0;background:linear-gradient(135deg,#1a1a2e,#16213e);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;z-index:100;padding:20px;text-align:center}
+#start h1{colorfl:#fa0;font-size:28px;margin-bottom:15px}
+#start p{font-size:14px;margin:5px}
+#sbtn{margin-top:25px;);
+
+padding:18px //50px;font-size:20px;background:#fa0;border:none;border-radius:12px;font-weight:bold}
+#hint{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(255,170,0,.95);color:#000;padding:12px 24px;border-radius:10px;font-size:16px;font-weight:bold;display:none}
+#tbar{position:absolute;top:0;left:0;height:5px;background:#0f8;width:100%;z-index:20}
+#joy{position:absolute;bottom:20px;left:20px;width:130px;height:130px;border-radius:50%;background:rgba(255,255,255,.15);border:3px solid rgba(255,255,255,.3);display:none;pointer-events:auto;touch-action:none}
+#knob{position:absolute;top:50%;left:50%;width:55px;height:55px;border-radius:50%;background:rgba(255,170,0,.9);border:3px solid #fff;transform:translate(-50%,-50%)}
+#peds{position:absolute;bottom:20px;right:20px;display:none;flex-direction:column;gap:15px;pointer-events:auto}
+.ped{width:85px;height:85px;border-radius:50%;background:rgba(255,170,0,.85);border:3px solid #fff;color:#000;font-size:32px;display:flex;align-items:center;justify-content:center;font-weight:bold;touch-action:none}
+.ped.on{background:#fff;transform:scale(.92)}
+#miss{position:absolute;top:70px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.85);padding:10px 20px;border-radius:10px;border:2px solid #0f8;color:#0f8;font-weight:bold;display:none;text-align:center;font-size:14px}
+</style>
+</head>
+<body>
+<div id="tbar"></div>
+<div id="start">
+<h1>🚗 محاكي إجازة السوق</h1>
+<p>🇮🇶 النظري + العملي</p>
+<p style="color:#aaa;font-size:12px;margin-top:15px">جويستيك = توجيه | دواسات = تقديم/رجوع</p>
+<button id="sbtn">ابدأ اللعبة 🚦</button>
+</div>
+<div id="ui">
+<div id="info"><h2 id="stg">📚 النظري</h2><div id="scr">النقاط: 0</div><div id="ins">اقترب من اللابتوب</div></div>
+<div id="miss"></div>
+<div id="hint">اضغط E لفتح الاختبار</div>
+<div id="joy"><div id="knob"></div></div>
+<div id="peds"><div class="ped" id="pf">▲</div><div class="ped" id="pb">▼</div></div>
+<div id="qbox"><h3 style="color:#fa0">📝 سؤال</h3><div id="qtxt"></div>
+<button class="abtn tbtn" onclick="ans(1)">✓ صح</button>
+<button class="abtn fbtn" onclick="ans(0)">✗ خطأ</button>
+<div id="fb"></div></div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+let ac=null;
+function initAudio(){if(!ac)ac=new(window.AudioContext||window.webkitAudioContext)()}
+function beep(f,d,t='sine',v=.1){if(!ac)return;const o=ac.createOscillator(),g=ac.createGain();o.type=t;o.frequency.value=f;g.gain.setValueAtTime(v,ac.currentTime);g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+d);o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+d)}
+function sOk(){beep(880,.15);setTimeout(()=>beep(1100,.2),100)}
+function sNo(){beep(200,.3,'sawtooth',.15)}
+function sCrash(){beep(100,.4,'square',.2)}
+function sWin(){[523,659,784,1046].forEach((f,i)=>setTimeout(()=>beep(f,.2),i*120))}
+function vib(m=100){if(navigator.vibrate)navigator.vibrate(m)}
+
+const QS=[
+{q:"إشارة المثلث الأحمر الفارغ تعني إعطاء الأولوية",a:1},
+{q:"الدائرة الحمراء الفارغة تعني ممنوع الدخول",a:1},
+{q:"المثلث الأحمر بعكس السهم يعني الأولوية لك",a:0},
+{q:"الخطوط المتقطعة تعني ممنوع التجاوز",a:0},
+{q:"إشارة STOP تعني قف إجباري",a:1},
+{q:"الدائرة الحمراء مع 50 تعني السرعة القصوى",a:1},
+{q:"إشارة المشاة الزرقاء تعني ممنوع المشاة",a:0},
+{q:"السهم الأزرق للأمام يعني اتجاه إجباري",a:1},
+{q:"المثلث الأحمر مع سيارة ومنحدر يعني خطر منحدر",a:1},
+{q:"الدائرة الحمراء مع خط أفقي تعني ممنوع الوقوف",a:1},
+{q:"المثلث مع طفلين يعني ممنوع مرور الأطفال",a:0},
+{q:"الدائرة الزرقاء مع دراجة = مسار دراجات",a:1},
+{q:"المثلث مع قطار يعني خطر قطار",a:1},
+{q:"الدائرة الحمراء مع شاحنة = ممنوع الشاحنات",a:1},
+{q:"المثلث مع حيوان يعني ممر حيوانات",a:1},
+{q:"الدائرة مع سهمين متعاكسين = ممنوع التجاوز",a:1},
+{q:"المثلث مع عمال يعني منطقة أعمال",a:1},
+{q:"المثلث مع سيارة تنزلق = طريق زلق",a:1},
+{q:"الأولوية للسيارة القادمة من اليمين",a:1},
+{q:"يُمنع استخدام الهاتف أثناء القيادة",a:1},
+{q:"حزام الأمان للسائق فقط",a:0},
+{q:"السرعة داخل المدن عادة 60 كم/س",a:1},
+{q:"يمكن التجاوز من اليمين دائماً",a:0},
+{q:"الخط الأصفر المتصل يعني ممنوع التجاوز",a:1},
+{q:"يجوز القيادة بدون رخصة في الطرق الفرعية",a:0}
+];
+
+let scene,cam,ren,player,car,laptop;
+let keys={},state='menu',qs=[],qi=0,sc=0,ta=0,pts=0,near=0,thDone=0,pracDone=0;
+let cones=[],ccd=0,jx=0,jy=0,tLeft=60,tIv=null,missOn=0,parked=0;
+let parkT=new THREE.Vector3(253,0,-10);
+const cSpeed=.22,tSpeed=.035;
+
+function init(){
+scene=new THREE.Scene();
+scene.background=new THREE.Color(0x87ceeb);
+scene.fog=new THREE.Fog(0x87ceeb,40,150);
+cam=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,.1,1000);
+ren=new THREE.WebGLRenderer({antialias:1});
+ren.setSize(innerWidth,innerHeight);
+ren.setPixelRatio(Math.min(devicePixelRatio,2));
+ren.shadowMap.enabled=1;
+document.body.appendChild(ren.domElement);
+scene.add(new THREE.AmbientLight(0xffffff,.7));
+const s=new THREE.DirectionalLight(0xffffff,.8);
+s.position.set(50,100,50);s.castShadow=1;s.shadow.mapSize.width=1024;s.shadow.mapSize.height=1024;
+scene.add(s);
+
+// الأرض
+const g=new THREE.Mesh(new THREE.PlaneGeometry(800,800),new THREE.MeshLambertMaterial({color:0x3a3a3a}));
+g.rotation.x=-Math.PI/2;g.receiveShadow=1;scene.add(g);
+
+// غرفة النظري
+const wm=new THREE.MeshLambertMaterial({color:0xf5f5dc});
+[[0,4,-10,20,8,.5],[0,4,10,20,8,.5],[-10,4,0,.5,8,20],[10,4,0,.5,8,20]].forEach(([x,y,z,w,h,d])=>{
+const w=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),wm);w.position.set(x,y,z);w.receiveShadow=1;scene.add(w)});
+const fl=new THREE.Mesh(new THREE.PlaneGeometry(20,20),new THREE.MeshLambertMaterial({color:0x8b7355}));
+fl.rotation.x=-Math.PI/2;fl.position.y=.01;fl.receiveShadow=1;scene.add( طاولة
+const tm=new THREE.MeshLambertMaterial({color:0x654321});
+const tt=new THREE.Mesh(new THREE.BoxGeometry(4,.2,2),tm);tt.position.set(0,2,-6);tt.castShadow=1;scene.add(tt);
+[[-1.8,-5.2],[1.8,-5.2],[-1.8,-6.8],[1.8,-6.8]].forEach(([x,z])=>{
+const l=new THREE.Mesh(new THREE.BoxGeometry(.2,2,.2),tm);l.position.set(x,1,z);l.castShadow=1;scene.add(l)});
+
+// لابتوب
+const lg=new THREE.Group();
+const lb=new THREE.Mesh(new THREE.BoxGeometry(2,.1,1.4),new THREE.MeshLambertMaterial({color:0x222}));
+lb.castShadow=1;lg.add(lb);
+const ls=new THREE.Mesh(new THREE.BoxGeometry(2,1.3,.08),new THREE.MeshLambertMaterial({color:0x111}));
+ls.position.set(0,.65,-.65);ls.rotation.x=-.2;ls.castShadow=1;lg.add(ls);
+const ld=new THREE.Mesh(new THREE.PlaneGeometry(1.8,1.1),new THREE.MeshBasicMaterial({color:0x00aaff}));
+ld.position.set(0,.65,-.6);ld.rotation.x=-.2;lg.add(ld);
+lg.position.set(0,2.15,-6);scene.add(lg);laptop=lg;
+
+// كرسي
+const cm=new THREE.MeshLambertMaterial({color:0x333});
+const cs=new THREE.Mesh(new THREE.BoxGeometry(1.2,.15,1.2),cm);cs.position.set(0,1,-4.5);cs.castShadow=1;scene.add(cs);
+const cb=new THREE.Mesh(new THREE.BoxGeometry(1.2,1.2,.15),cm);cb.position.set(0,1.6,-3.9);cb.castShadow=1;scene.add(cb);
+
+// مسار العملي
+makeTrack();
+
+// اللاعب
+makePlayer();
+
+setup();
+addEventListener('resize',onR);
+animate();
+}
+
+function makePlayer(){
+player=new THREE.Group();
+const b=new THREE.Mesh(new THREE.BoxGeometry(.8,1.5,.5),new THREE.MeshLambertMaterial({color:0x2244aa}));
+b.position.y=.75;b.castShadow=1;player.add(b);
+const h=new THREE.Mesh(new THREE.SphereGeometry(.35,16,16),new THREE.MeshLambertMaterial({color:0xffcc99}));
+h.position.y=1.85;h.castShadow=1;player.add(h);
+const am=new THREE.MeshLambertMaterial({color:0x2244aa});
+[-.55,.55].forEach(x=>{const a=new THREE.Mesh(new THREE.BoxGeometry(.2,1,.2),am);a.position.set(x,1,0);a.castShadow=1;player.add(a)});
+player.position.set(0,0,0);scene.add(player);
+}
+
+function makeTrack(){
+const tg=new THREE.Group();tg.position.set(200,0,0);
+const as=new THREE.Mesh(new THREE.PlaneGeometry(150,150),new THREE.MeshLambertMaterial({color:0x2c2c2c}));
+as.rotation.x=-Math.PI/2;as.position.y=.02;as.receiveShadow=1;tg.add(as);
+
+const ring=new THREE.Mesh(new THREE.RingGeometry(25,32,64),new THREE.MeshLambertMaterial({color:0x555,side:2}));
+ring.rotation.x=-Math.PI/2;ring.position.y=.03;tg.add(ring);
+
+for(let i=0;i<32;i++){const a=(i/32)*Math.PI*2;
+const ln=new THREE.Mesh(new THREE.PlaneGeometry(1,3),new THREE.MeshBasicMaterial({color:0xfff}));
+ln.rotation.x=-Math.PI/2;ln.rotation.z=-a;ln.position.set(Math.cos(a)*28.5,.04,Math.sin(a)*28.5);tg.add(ln)}
+
+const bm=new THREE.MeshLambertMaterial({color:0x808080});
+const r1=new THREE.Mesh(new THREE.BoxGeometry(8,.5,15),bm);r1.position.set(0,1.5,0);r1.rotation.x=.15;r1.castShadow=1;tg.add(r1);
+const tp=new THREE.Mesh(new THREE.BoxGeometry(8,.5,15),bm);tp.position.set(0,2.5,15);tp.castShadow=1;tg.add(tp);
+const r2=new THREE.Mesh(new THREE.BoxGeometry(8,.5,15),bm);r2.position.set(0,1.5,30);r2.rotation.x=-.15;r2.castShadow=1;tg.add(r2);
+const pm=new THREE.MeshLambertMaterial({color:0x606060});
+[[-4,15],[4,15],[-4,22],[4,22]].forEach(([x,z])=>{const p=new THREE.Mesh(new THREE.BoxGeometry(1,2.5,1),pm);p.position.set(x,1.25,z);p.castShadow=1;tg.add(p)});
+
+const wm=new THREE.MeshBasicMaterial({color:0xfff});
+[[48,.05,-10,.25,6,0],[58,.05,-10,.25,6,0],[53,.05,-13,10,.25,0],
+[-48,.05,-10,.25,6,0],[-58,.05,-10,.25,6,0],[-53,.05,-13,10,.25,0]].forEach(([x,y,z,w,h,d])=>{
+const pl=new THREE.Mesh(new THREE.PlaneGeometry(w,h),wm);pl.rotation.x=-Math.PI/2;pl.position.set(x,y,z);tg.add(pl)});
+
+const l1=makeSprite('ركن جانبي','#0f8');l1.position.set(53,3,-10);l1.scale.set(7,3.5,1);tg.add(l1);
+const l2=makeSprite('ركن خلفي','#ff0');l2.position.set(-53,3,-10);l2.scale.set(7,3.5,1);tg.add(l2);
+
+const com=new THREE.MeshLambertMaterial({color:0xff6600});
+const cp=[];
+for(let i=0;i<24;i++){const a=(i/24)*Math.PI*2;cp.push([Math.cos(a)*34,Math.sin(a)*34])}
+cp.push([45,-8],[61,-8],[-45,-8],[-61,-8]);
+cp.forEach(([x,z])=>{const c=new THREE.Mesh(new THREE.ConeGeometry(.5,1.2,8),com);c.position.set(x,.6,z);c.castShadow=1;tg.add(c);cones.push(c)});
+scene.add(tg);
+parkT.set(253,0,-10);
+}
+
+function makeSprite(t,c){
+const cv=document.createElement('canvas');cv.width=512;cv.height=256;
+const x=cv.getContext('2d');x.fillStyle='rgba(0,0,0,.8)';x.fillRect(0,0,512,256);
+x.font='bold 90px Arial';x.fillStyle=c;x.textAlign='center';x.textBaseline='middle';x.fillText(t,256,128);
+return new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(cv)}));
+}
+
+function makeCar(){
+car=new THREE.Group();
+const b=new THREE.Mesh(new THREE.BoxGeometry(2,.8,4),new THREE.MeshLambertMaterial({color:0xfff}));
+b.position.y=.7;b.castShadow=1;car.add(b);
+const c=new THREE.Mesh(new THREE.BoxGeometry(1.7,.7,2),new THREE.MeshLambertMaterial({color:0xccc}));
+c.position.set(0,1.4,-.2);c.castShadow=1;car.add(c);
+const gm=new THREE.MeshLambertMaterial({color:0x223344,transparent:1,opacity:.7});
+const ws=new THREE.Mesh(new THREE.BoxGeometry(1.6,.6,.1),gm);ws.position.set(0,1.4,.85);ws.rotation.x=.3;car.add(ws);
+const wm=new THREE.MeshLambertMaterial({color:0x111});
+const wg=new THREE.CylinderGeometry(.4,.4,.3,16);
+[[-1.05,.4,1.2],[1.05,.4,1.2],[-1.05,.4,-1.2],[1.05,.4,-1.2]].forEach(([x,y,z])=>{
+const w=new THREE.Mesh(wg,wm);w.rotation.z=Math.PI/2;w.position.set(x,y,z);w.castShadow=1;car.add(w)});
+const lm=new THREE.MeshBasicMaterial({color:0xffaa});
+[-.6,.6].forEach(x=>{const l=new THREE.Mesh(new THREE.BoxGeometry(.4,.2,.1),lm);l.position.set(x,.7,2);car.add(l)});
+car.position.set(200,0,35);car.visible=0;scene.add(car);
+}
+
+function setup(){
+document.getElementById('sbtn').onclick=start;
+addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=1;
+if(e.key.toLowerCase()==='e'&&near&&!thDone&&state==='theory')openQ()});
+addEventListener('keyup',e=>keys[e.key.toLowerCase()]=0);
+
+const jy=document.getElementById('joy'),kn=document.getElementById('knob');
+let ja=0,jc={x:0,y:0};
+function js(e){e.preventDefault();ja=1;const r=jy.getBoundingClientRect();jc.x=r.left+r.width/2;jc.y=r.top+r.height/2;jm(e)}
+function jm(e){if(!ja)return;e.preventDefault();const t=e.touches?e.touches[0]:e;
+let dx=t.clientX-jc.x,dy=t.clientY-jc.y;const mx=50,d=Math.hypot(dx,dy);
+if(d>mx){dx=dx/d*mx;dy=dy/d*mx}
+kn.style.transform=`translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+jx=dx/mx;jy=dy/mx}
+function je(e){e.preventDefault();ja=0;kn.style.transform='translate(-50%,-50%)';jx=0;jy=0}
+jy.addEventListener('touchstart',js,{passive:0});
+jy.addEventListener('touchmove',jm,{passive:0});
+jy.addEventListener('touchend',je,{passive:0});
+jy.addEventListener('mousedown',js);
+document.addEventListener('mousemove',jm);
+document.addEventListener('mouseup',je);
+
+function bindPed(id,k){
+const el=document.getElementById(id);
+el.addEventListener('touchstart',e=>{e.preventDefault();keys[k]=1;el.classList.add('on')},{passive:0});
+el.addEventListener('touchend',e=>{e.preventDefault();keys[k]=0;el.classList.remove('on')},{passive:0});
+el.addEventListener('mousedown',e=>{e.preventDefault();keys[k]=1;el.classList.add('on')});
+el.addEventListener('mouseup',e=>{e.preventDefault();keys[k]=0;el.classList.remove('on')});
+el.addEventListener('mouseleave',()=>{keys[k]=0;el.classList.remove('on')});
+}
+bindPed('pf','w');bindPed('pb','s');
+}
+
+function start(){
+initAudio();if(ac&&ac.state==='suspended')ac.resume();
+document.getElementById('start').style.display='none';
+state='theory';
+qs=shuf([...QS]).slice(0,10);qi=0;sc=0;ta=0;pts=0;upSc();
+if('ontouchstart'in window||innerWidth<768){
+document.getElementById('joy').style.display='block';
+document.getElementById('peds').style.display='flex';
+}
+}
+
+function shuf(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+
+function openQ(){
+if(qi>=qs.length){finTh();return}
+const q=qs[qi];
+document.getElementById('qtxt').textContent=`(${qi+1}/${qs.length}) ${q.q}`;
+document.getElementById('fb').textContent='';
+document.getElementById('qbox').style.display='block';
+document.getElementById('hint').style.display='none';
+startT(20,()=>ans(null));
+}
+
+function startT(sec,end){
+tLeft=sec;const b=document.getElementById('tbar');b.style.width='100%';b.style.background='#0f8';
+if(tIv)clearInterval(tIv);
+tIv=setInterval(()=>{tLeft-=.1;const p=tLeft/sec*100;b.style.width=p+'%';
+if(p<30)b.style.background='#f44';else if(p<60)b.style.background='#fa0';
+if(tLeft<=0){clearInterval(tIv);tIv=null;if(end)end()}},100);
+}
+function stopT(){if(tIv){clearInterval(tIv);tIv=null}document.getElementById('tbar').style.width='0%'}
+
+function ans(u){
+stopT();
+const q=qs[qi],fb=document.getElementById('fb');
+ta++;
+if(u===q.a){sc++;pts+=10;fb.textContent='✓ صحيح! +10';fb.style.color='#0f8';sOk()}
+else{fb.textContent=`✗ خطأ! الصحيح: ${q.a?'صح':'خطأ'}`;fb.style.color='#f44';sNo();vib(150)}
+upSc();
+setTimeout(()=>{qi++;
+if(qi>=qs.length){document.getElementById('qbox').style.display='none';finTh()}
+else openQ()},1500);
+}
+
+function upSc(){document.getElementById('scr').textContent=`النقاط: ${pts}`}
+
+function finTh(){
+thDone=1;
+const pass=sc>=7;
+document.getElementById('qtxt').innerHTML=pass?
+`🎉 نجحت!<br><br>الصحيحة: ${sc}/${qs.length}<br>النقاط: ${pts}`:
+`❌ لم تنجح<br><br>الصحيحة: ${sc}/${qs.length}<br>تحتاج 7`;
+if(pass)sWin();else sNo();
+document.getElementById('qbox').style.display='block';
+document.getElementById('fb').textContent='';
+const bx=document.getElementById('qbox');
+const bt=document.createElement('button');
+bt.className='abtn tbtn';
+bt.textContent=pass?'🚗 ابدأ العملي':'🔄 إعادة';
+bt.onclick=()=>{bx.style.display='none';bt.remove();
+if(pass)toPrac();
+else{qs=shuf([...QS]).slice(0,10);qi=0;sc=0;ta=0;upSc();thDone=0}};
+bx.appendChild(bt);
+}
+
+function toPrac(){
+state='practical';player.visible=0;makeCar();car.visible=1;
+document.getElementById('stg').textContent='🚗 العملي';
+document.getElementById('ins').textContent='اركن في المنطقة الخضراء';
+document.getElementById('joy').style.display='block';
+document.getElementById('peds').style.display='flex';
+document.getElementById('miss').style.display='block';
+document.getElementById('miss').textContent='🎯 اركن في المنطقة الخضراء';
+missOn=1;
+startT(90,()=>{if(!parked){document.getElementById('miss').textContent='⏰ انتهى الوقت!';document.getElementById('miss').style.borderColor='#f44';document.getElementById('miss').style.color='#f44'}});
+}
+
+function animate(){requestAnimationFrame(animate);
+if(state==='theory')upTh();
+else if(state==='practical')upPr();
+ren.render(scene,cam);
+}
+
+function upTh(){
+const sp=.13;let dx=0,dz=0;
+if(keys['w']||keys['arrowup']||jy<-.3)dz-=sp;
+if(keys['s']||keys['arrowdown']||jy>.3)dz+=sp;
+if(keys['a']||keys['arrowleft']||jx<-.3)dx-=sp;
+if(keys['d']||keys['arrowright']||jx>.3)dx+=sp;
+const nx=player.position.x+dx,nz=player.position.z+dz;
+if(nx>-9&&nx<9)player.position.x=nx;
+if(nz>-9&&nz<9)player.position.z=nz;
+if(dx!==0||dz!==0)player.rotation.y=Math.atan2(dx,dz);
+const d=Math.hypot(player.position.x-laptop.position.x,player.position.z-laptop.position.z);
+near=d<3;
+document.getElementById('hint').style.display=(near&&!thDone)?'block':'none';
+const co=new THREE.Vector3(0,6,8);co.applyAxisAngle(new THREE.Vector3(0,1,0),player.rotation.y);
+cam.position.lerp(new THREE.Vector3(player.position.x+co.x,player.position.y+co.y,player.position.z+co.z),.1);
+cam.lookAt(player.position.x,player.position.y+1.5,player.position.z);
+}
+
+function upPr(){
+if(!car)return;
+if((keys['w']||keys['s'])&&Math.random()<.15)beep(80,.05,'sawtooth',.03);
+const f=new THREE.Vector3(0,0,1).applyAxisAngle(new THREE.Vector3(0,1,0),car.rotation.y);
+if(keys['w']||jy<-.3){car.position.x+=f.x*cSpeed;car.position.z+=f.z*cSpeed}
+if(keys['s']||jy>.3){car.position.x-=f.x*cSpeed*.7;car.position.z-=f.z*cSpeed*.7}
+if(keys['a']||keys['arrowleft']||jx<-.3)car.rotation.y+=tSpeed;
+if(keys['d']||keys['arrowright']||jx>.3)car.rotation.y-=tSpeed;
+
+if(ccd>0)ccd--;
+cones.forEach(c=>{const dx=car.position.x-c.position.x,dz=car.position.z-c.position.z,d=Math.hypot(dx,dz);
+if(d<1.5&&ccd===0){ccd=60;pts=Math.max(0,pts-5);upSc();sCrash();vib(200);
+document.getElementById('miss').textContent='⚠️ صدمت مخروط! -5';
+document.getElementById('miss').style.borderColor='#f44';
+document.getElementById('miss').style.color='#f44';
+setTimeout(()=>{if(missOn&&!parked){document.getElementById('miss').textContent='🎯 اركن في المنطقة الخضراء';document.getElementById('miss').style.borderColor='#0f8';document.getElementById('miss').style.color='#0f8'}},2000);
+car.position.x-=f.x*1.5;car.position.z-=f.z*1.5}});
+
+if(missOn&&!parked){
+const d=Math.hypot(car.position.x-parkT.x,car.position.z-parkT.z);
+if(d<3){parked=1;missOn=0;stopT();pts+=50;upSc();sWin();vib([100,100,100]);
+document.getElementById('miss').textContent='🎉 نجحت! +50';
+document.getElementById('miss').style.borderColor='#0f8';
+document.getElementById('miss').style.color='#0f8';
+setTimeout(()=>{document.getElementById('miss').innerHTML=`🏆 النتيجة: ${pts} نقطة<br><small>أعد التحميل للعب مرة أخرى</small>`},2500)}}
+
+const co=new THREE.Vector3(0,9,-11);co.applyAxisAngle(new THREE.Vector3(0,1,0),car.rotation.y);
+cam.position.lerp(new THREE.Vector3(car.position.x+co.x,car.position.y+co.y,car.position.z+co.z),.08);
+cam.lookAt(car.position.x,car.position.y+1,car.position.z);
+}
+
+function onR(){cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();ren.setSize(innerWidth,innerHeight)}
+
+init();
+</script>
+</body>
+</html>
