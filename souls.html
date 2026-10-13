@@ -1,1 +1,319 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>آخر ضوء — Prototype</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;background:#07080c;color:#eee;font-family:Arial,sans-serif;height:100%;overflow:hidden}
+#wrap{height:100%;display:flex;align-items:center;justify-content:center}
+canvas{display:block;background:#0a0d12;image-rendering:pixelated;image-rendering:crisp-edges;max-width:100vw;max-height:100vh}
+#hint{position:fixed;left:10px;bottom:8px;color:#aaa;font-size:12px;opacity:.8;pointer-events:none}
+#touch{position:fixed;inset:auto 0 12px 0;display:flex;justify-content:space-between;padding:0 14px;pointer-events:none}
+.pad,.actions{display:flex;gap:8px;pointer-events:auto}
+button{border:1px solid #778;background:#151a24;color:#fff;border-radius:12px;min-width:52px;height:52px;font-size:18px;opacity:.82;touch-action:none;user-select:none;-webkit-user-select:none}
+button:active{transform:scale(.95);background:#252c3a}
+@media (min-width:900px){#touch{display:none}}
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="game" width="960" height="540"></canvas></div>
+<div id="hint">A/D أو الأسهم للحركة • W/Space للقفز • J هجوم • K تفادي • E تفاعل • R إعادة</div>
+<div id="touch">
+  <div class="pad"><button data-key="ArrowLeft">◀</button><button data-key="ArrowRight">▶</button></div>
+  <div class="actions"><button data-key="Space">↑</button><button data-key="KeyJ">⚔</button><button data-key="KeyK">◆</button><button data-key="KeyE">E</button></div>
+</div>
+<script>
+const c=document.getElementById('game'),ctx=c.getContext('2d');
+ctx.imageSmoothingEnabled=false;
+const W=c.width,H=c.height,GROUND=455;
+const keys={},pressed={};
+addEventListener('keydown',e=>{if(!keys[e.code])pressed[e.code]=true;keys[e.code]=true;if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault()});
+addEventListener('keyup',e=>keys[e.code]=false);
+document.querySelectorAll('button').forEach(b=>{
+  const k=b.dataset.key;
+  b.addEventListener('pointerdown',e=>{e.preventDefault();if(!keys[k])pressed[k]=true;keys[k]=true});
+  b.addEventListener('pointerup',()=>keys[k]=false);
+  b.addEventListener('pointercancel',()=>keys[k]=false);
+  b.addEventListener('pointerleave',()=>keys[k]=false);
+  b.addEventListener('contextmenu',e=>e.preventDefault());
+});
 
+let state='play',msg='',msgT=0,shake=0,stage=1;
+let camera=0,worldW=3600;
+const player={x:180,y:380,w:30,h:54,vx:0,vy:0,hp:100,maxHp:100,energy:60,maxEnergy:60,mem:0,onGround:false,face:1,atk:0,attackCD:0,dodge:0,inv:0};
+const enemies=[
+ {type:'hollow',x:730,y:403,w:32,h:52,hp:55,max:55,vx:0,alive:true,cd:0,hit:0},
+ {type:'hollow',x:1190,y:403,w:32,h:52,hp:65,max:65,vx:0,alive:true,cd:0,hit:0},
+ {type:'guardian',x:1780,y:395,w:42,h:60,hp:110,max:110,vx:0,alive:true,cd:0,hit:0},
+ {type:'hollow',x:2300,y:403,w:32,h:52,hp:80,max:80,vx:0,alive:true,cd:0,hit:0},
+ {type:'boss',x:3140,y:365,w:58,h:90,hp:360,max:360,vx:0,alive:true,cd:0,hit:0}
+];
+const memories=[
+ {x:430,y:385,got:false,text:'ذكرى امرأة عجوز: «آدم... لا تثق بأمك.»'},
+ {x:1010,y:385,got:false,text:'ذكرى مجهولة: طفلان يركضان في الغابة البيضاء.'},
+ {x:1450,y:385,got:false,text:'ذكرى ليان: «كان اسمه آدم... وكان أخي.»'},
+ {x:2020,y:385,got:false,text:'ذكرى الدكتور: «الشرارة ليست طاقة. إنها وعي.»'},
+ {x:2660,y:385,got:false,text:'ذكرى الأم: «أخذت ذاكرتك لأنك طلبت مني ذلك.»'}
+];
+const particles=[];
+function say(t,seconds=3){msg=t;msgT=Math.max(0,seconds*60)}
+function rect(x,y,w,h,fill){ctx.fillStyle=fill;ctx.fillRect(Math.round(x),Math.round(y),w,h)}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+function boxHit(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y}
+function burst(x,y,n=12){
+ for(let i=0;i<n;i++)particles.push({x,y,vx:(Math.random()-.5)*5,vy:(Math.random()-.8)*5,life:40+Math.random()*30});
+}
+function reset(){
+ player.x=180;player.y=380;player.vx=0;player.vy=0;player.hp=100;player.energy=60;player.mem=0;
+ player.atk=0;player.attackCD=0;player.dodge=0;player.inv=0;player.face=1;player.onGround=false;
+ enemies.forEach(e=>{e.alive=true;e.hp=e.max;e.cd=0;e.hit=0});
+ memories.forEach(m=>m.got=false);
+ particles.length=0;
+ state='play';stage=1;camera=0;
+ say('فال — بداية الحكاية');
+}
+function input(k){return !!keys[k]}
+function just(k){return !!pressed[k]}
+function clearPressed(){for(const k in pressed)delete pressed[k]}
+
+function update(){
+ if(state==='gameover'||state==='ending'){
+   if(just('KeyR')){reset();clearPressed()}
+   clearPressed();
+   return;
+ }
+ msgT=Math.max(0,msgT-1);
+ if(player.inv>0)player.inv--;
+ if(player.attackCD>0)player.attackCD--;
+ if(player.atk>0)player.atk--;
+ if(player.dodge>0)player.dodge--;
+ player.energy=Math.min(player.maxEnergy,player.energy+.07);
+
+ let dir=(input('ArrowRight')||input('KeyD')?1:0)-(input('ArrowLeft')||input('KeyA')?1:0);
+ if(player.dodge===0){
+   player.vx += dir*.65;
+   player.vx*=.82;
+   player.vx=clamp(player.vx,-5.2,5.2);
+ } else player.vx=player.face*8;
+ if(dir)player.face=dir;
+
+ // قفز
+ const jumpKey=just('Space')||just('ArrowUp')||just('KeyW');
+ if(jumpKey&&player.onGround){
+   player.vy=-11;
+   player.onGround=false;
+ }
+ // هجوم
+ if(just('KeyJ')&&player.attackCD===0&&player.dodge===0){player.atk=9;player.attackCD=18}
+ // تفادي
+ if(just('KeyK')&&player.dodge===0&&player.energy>=12){
+   player.energy-=12;player.dodge=13;player.inv=18;
+   burst(player.x+15,player.y+25,8);
+ }
+
+ // تفاعل
+ if(just('KeyE')){
+   for(const m of memories){
+     if(!m.got && Math.abs((m.x+12)-(player.x+15))<70){
+       m.got=true;player.mem++;
+       player.energy=Math.min(player.maxEnergy,player.energy+20);
+       say(m.text,5);
+       burst(m.x+11,m.y+16,18);
+       if(player.mem===3)say('شيء في الماضي بدأ يتضح... ليان تعرفك.',5);
+     }
+   }
+   if(!enemies[4].alive && Math.abs(player.x-3140)<120){state='ending';msgT=0}
+ }
+
+ // فيزياء
+ player.vy+=.55;
+ player.x+=player.vx;
+ player.y+=player.vy;
+ if(player.y+player.h>=GROUND){player.y=GROUND-player.h;player.vy=0;player.onGround=true}
+ else player.onGround=false;
+ player.x=clamp(player.x,0,worldW-player.w);
+ if(player.hp<=0){state='gameover';say('انتهت الرحلة...',99)}
+
+ // هجوم اللاعب
+ if(player.atk>0){
+   const hb={x:player.face>0?player.x+20:player.x-48,y:player.y+10,w:48,h:35};
+   for(const e of enemies){
+     if(e.alive&&boxHit(hb,e)&&e.hit===0){
+       e.hp-=28;e.hit=12eb;
+       burst(e.x+e.w/2,e.y+20,8);
+7       shakec=5;
+       if(e.hp8<=0){
+         e.alive=false;';
+player.mem++;
+         say  (e.type==='boss'?'«أنت... أخيراً عدت.»':'الشرارة دخلت في جسدك.',2.5);
+       }
+     }
+   }
+ }
+
+ // الأعداء
+ for(const e of enemies){
+   if(!e.alive){if(e.hit>0)e.hit--;continue}
+   if(e.hit>0)e.hit--;
+   const dx=player.x-e.x,dist=Math.abs(dx);
+   if(dist<500&&e.type!=='boss'){
+     e.vx += Math.sign(dx)*.035;
+     e.vx*=.94;
+     e.vx=clamp(e.vx,-1.5,1.5);
+     e.x+=e.vx;
+   }
+   e.cd=Math.max(0,e.cd-1);
+   if(dist<55&&e.cd===0&&player.inv===0){
+     const dmg=e.type==='boss'?15:8;
+     player.hp-=dmg;player.inv=30;shake=8;
+     e.cd=e.type==='boss'?50:65;
+   }
+   // نبضة الزعيم
+   if(e.type==='boss'&&dist<260&&e.cd===0){
+     e.cd=80;
+     particles.push({x:e.x+e.w/2,y:e.y+30,vx:Math.sign(dx)*4,vy:0,life:90,enemyPulse:true});
+   }
+ }
+
+ // الجزيئات
+ for(let i=particles.length-1;i>=0;i--){
+   const p=particles[i];
+   p.x+=p.vx;p.y+=p.vy;p.vy+=.08;p.life--;
+   if(p.enemyPulse&&boxHit({x:p.x,y:p.y,w:12,h:12},player)&&player.inv===0){
+     player.hp-=10;player.inv=30;shake=6;
+     particles.splice(i,1);continue;
+   }
+   if(p.life<=0)particles.splice(i,1);
+ }
+
+ // رسالة الزعيم
+ if(enemies[4].alive && player.x>2900 && msgT===0){
+   say('حارس البوابة: «كلما اقتربت من الشمس... اقتربت من ذاكرتك.»',4);
+ }
+
+ camera+=(clamp(player.x-360,0,worldW-W)-camera)*.08;
+ clearPressed();
+}
+
+function drawBackground(){
+ rect(0,0,W,H,'#080b11');
+ ctx.fillStyle='#171c28';ctx.beginPath();ctx.arc(770,95,55,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle='#303746';ctx.beginPath();ctx.arc(770,95,35,0,Math.PI*2);ctx.fill();
+ for(let i=0;i<70;i++){
+   const x=(i*137-camera*.12)%W,y=35+(i*83)%250;
+   rect((x+W)%W,y,2,2,'#778094');
+ }
+ for(let i=0;i<18;i++){
+   const x=i*240-camera*.22;
+   rect(x,300-(i%3)*22,130,155,'#111721');
+   for(let j=0;j<5;j++)rect(x+18+j*22,325-(i%3)*22,8,12,'#343b48');
+ }
+}
+
+function drawWorld(){
+ ctx.save();ctx.translate(-camera,0);
+ // الأرض
+ rect(0,GROUND,worldW,H-GROUND,'#11151b');
+ for(let x=0;x<worldW;x+=80){rect(x,GROUND,2,85,'#252a31')}
+ for(let x=40;x<worldW;x+=125)rect(x,447-(x%3)*2,65,5,'#303640');
+ // مباني
+ rect(80,315,210,140,'#151a23');rect(105,290,160,25,'#202735');
+ rect(890,335,170,120,'#151a23');rect(925,310,100,25,'#202735');
+ rect(1550,280,260,175,'#121720');rect(1590,250,180,30,'#242b38');
+ rect(2180,330,300,125,'#141922');
+ // لافتات
+ ctx.fillStyle='#b8c0cc';ctx.font='bold 22px Arial';
+ ctx.fillText('فال',145,350);
+ ctx.fillText('الغابة البيضاء',920,350);
+ ctx.fillText('مدينة المرايا',1600,315);
+ ctx.fillText('المختبر',2220,365);
+ // بلورات الذكريات
+ for(const m of memories)if(!m.got){
+   const yy=385+Math.sin(Date.now()/250+m.x)*7;
+   ctx.shadowBlur=18;ctx.shadowColor='#8be9ff';
+   rect(m.x,yy,22,32,'#8be9ff');
+   ctx.shadowBlur=0;
+ }
+ // الأعداء
+ for(const e of enemies)if(e.alive){
+   const col=e.type==='boss'?'#c7a4ff':e.type==='guardian'?'#9aa6b8':'#59616e';
+   rect(e.x,e.y,e.w,e.h,col);
+   rect(e.x+7,e.y+10,e.w-14,8,'#11131a');
+   if(e.type==='boss'){rect(e.x-8,e.y-12,e.w+16,7,'#171a22');}
+   rect(e.x,e.y-12,e.w,5,'#24151a');
+   rect(e.x,e.y-12,e.w*(e.hp/e.max),5,'#e07b86');
+ }
+ // اللاعب
+ if(player.inv%6<3){
+   rect(player.x,player.y,player.w,player.h,'#e8edf2');
+   rect(player.x+5,player.y+7,20,18,'#b9c4d2');
+   rect(player.face>0?player.x+22:player.x-18,player.y+24,25,5,'#dce8ff');
+ }
+ // سيف
+ if(player.atk>0){
+   ctx.strokeStyle='#dff8ff';ctx.lineWidth=5;
+   ctx.beginPath();
+   if(player.face>0){ctx.arc(player.x+25,player.y+28,34,-.8,.8)}
+   else{ctx.arc(player.x+5,player.y+28,34,Math.PI-.8,Math.PI+.8)}
+   ctx.stroke();
+ }
+ // جزيئات
+ for(const p of particles){
+   rect(p.x,p.y,p.enemyPulse?12:4,p.enemyPulse?12:4,p.enemyPulse?'#bd77ff':'#bdefff');
+ }
+ ctx.restore();
+}
+
+function ui(){
+ rect(20,18,250,22,'#191d26');
+ rect(20,18,250*(player.hp/player.maxHp),22,'#d65b68');
+ rect(20,45,180,12,'#191d26');
+ rect(20,45,180*(player.energy/player.maxEnergy),12,'#63c9df');
+ ctx.fillStyle='#fff';ctx.font='bold 15px Arial';
+ ctx.fillText('الحياة',25,34);
+ ctx.fillText('الطاقة',25,56);
+ ctx.fillText('الذكريات: '+player.mem,20,83);
+ ctx.textAlign='center';
+ ctx.font='bold 25px Arial';
+ ctx.fillText('آخــر ضــوء',W/2,35);
+ ctx.font='15px Arial';ctx.fillStyle='#aeb7c8';
+ ctx.fillText('فال — ابحث عن الشرارات',W/2,58);
+ if(msgT>0){
+   const alpha=Math.min(1,msgT/30);
+   ctx.globalAlpha=alpha;
+   rect(130,465,700,52,'#0c1018');
+   ctx.strokeStyle='#566275';ctx.strokeRect(130,465,700,52);
+   ctx.fillStyle='#f2f5fa';ctx.font='18px Arial';
+   ctx.fillText(msg,W/2,497);
+   ctx.globalAlpha=1;
+ }
+ if(state==='gameover'||state==='ending'){
+   rect(0,0,W,H,'rgba(0,0,0,.75)');
+   ctx.fillStyle='#fff';ctx.textAlign='center';
+   ctx.font='bold 42px Arial';
+   ctx.fillText(state==='ending'?'النهاية — لكن الحقيقة بدأت الآن':'سقط آدم',W/2,220);
+   ctx.font='20px Arial';
+   ctx.fillText(state==='ending'?'أكملت النموذج الأول من رحلة آخر ضوء.':'اضغط R لإعادة المحاولة',W/2,265);
+   ctx.font='16px Arial';ctx.fillStyle='#a ctx.fillText('الذكريات التي جمعتها: '+player.mem,W/2,300);
+ }
+ ctx.textAlign='right';
+}
+
+function draw(){
+ ctx.clearRect(0,0,W,H);
+ drawBackground();
+ drawWorld();
+ ui();
+ if(shake>0){
+   shake--;
+   c.style.transform=`translate(${(Math.random()-.5)*shake}px,${(Math.random()-.5)*shake}px)`;
+ } else c.style.transform='';
+}
+function loop(){update();draw();requestAnimationFrame(loop)}
+say('فال — استخرج أول شرارة من المنزل المهجور',4);
+loop();
+</script>
+</body>
+</html>
